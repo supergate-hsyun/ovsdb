@@ -43,7 +43,7 @@ type OvsDatabase struct {
 	Schema  struct {
 		Version string
 	}
-	connected bool
+	connected bool //nolint:unused
 }
 
 // Databases - DOCS-TBD

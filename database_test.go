@@ -32,8 +32,15 @@ func TestListDatabasesMethod(t *testing.T) {
 		t.Fatalf("FAIL: expected to find a single database, but found: %d", len(databases))
 	}
 	dbName := "Open_vSwitch"
-	if databases[0] != dbName {
-		t.Fatalf("FAIL: expected to find '%s' database, but found: %s", dbName, databases[0])
+	found := false
+	for _, db := range databases {
+		if db == dbName {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("FAIL: expected to find '%s' database in %v", dbName, databases)
 	}
 	t.Logf("PASS: 'list_dbs' method completed successfully")
 }

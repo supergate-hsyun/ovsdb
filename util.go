@@ -36,7 +36,7 @@ func encodeString(s string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return string(b[:len(b)]), nil
+	return string(b[:]), nil
 }
 
 func indentAnalysis(s string) int {
@@ -53,7 +53,7 @@ func indentAnalysis(s string) int {
 
 func dedupInts(arr []int) []int {
 	newArr := []int{}
-	sort.Sort(sort.IntSlice(arr))
+	sort.Ints(sort.IntSlice(arr))
 	var prevItem int
 	for i, item := range arr {
 		if i == 0 {
@@ -72,7 +72,7 @@ func dedupInts(arr []int) []int {
 
 func indentDepthAnalysis(arr []int) (map[int]int, error) {
 	depth := make(map[int]int)
-	sort.Sort(sort.IntSlice(arr))
+	sort.Ints(sort.IntSlice(arr))
 	indents := dedupInts(arr)
 	for i, indent := range indents {
 		depth[indent] = i

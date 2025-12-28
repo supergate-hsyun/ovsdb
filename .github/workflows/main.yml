@@ -14,7 +14,7 @@ jobs:
   core:
     strategy:
       matrix:
-        go-version: [1.20.x]
+        go-version: [1.24.x]
         platform: [ubuntu-latest]
     name: Build
     runs-on: ${{ matrix.platform }}
@@ -74,7 +74,7 @@ jobs:
     - name: Generate coverage report
       run: make coverage
     - name: Upload coverage report
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: Test Coverage Report
         path: .coverage/coverage.html

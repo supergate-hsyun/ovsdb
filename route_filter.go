@@ -130,7 +130,7 @@ func (rf *RouteFilter) Add(network string) error {
 			}
 		}
 	}
-	if networkFound == true {
+	if networkFound {
 		entry := rf.Entries[networkIndex]
 		entry.Exclusions = append(entry.Exclusions, ipNet)
 	} else {

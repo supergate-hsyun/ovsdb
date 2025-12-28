@@ -17,7 +17,7 @@ package ovsdb
 import (
 	"bufio"
 	"fmt"
-	"io/ioutil"
+	"io/ioutil" //nolint:staticcheck
 	"os"
 	"os/user"
 	"strconv"

@@ -18,6 +18,8 @@ import (
 	"bufio"
 	"fmt"
 	"os"
+	"regexp"
+	"strings"
 )
 
 // OvsDataFile stores information about the files related to OVS
@@ -46,7 +48,7 @@ type OvsDaemon struct {
 
 // GetSystemID TODO
 func (cli *OvnClient) GetSystemID() error {
-	systemID, err := getSystemID(cli.Database.Vswitch.File.SystemID.Path)
+	systemID, err := getSystemID(cli.Database.Vswitch.Client, cli.Database.Vswitch.Name, cli.Database.Vswitch.File.SystemID.Path)
 	if err != nil {
 		return err
 	}
@@ -56,7 +58,7 @@ func (cli *OvnClient) GetSystemID() error {
 
 // GetSystemID TODO
 func (cli *OvsClient) GetSystemID() error {
-	systemID, err := getSystemID(cli.Database.Vswitch.File.SystemID.Path)
+	systemID, err := getSystemID(cli.Database.Vswitch.Client, cli.Database.Vswitch.Name, cli.Database.Vswitch.File.SystemID.Path)
 	if err != nil {
 		return err
 	}
@@ -64,11 +66,40 @@ func (cli *OvsClient) GetSystemID() error {
 	return nil
 }
 
-func getSystemID(filepath string) (string, error) {
+func getSystemID(client *Client, dbName string, filepath string) (string, error) {
 	var systemID string
+	var dbErr error
+
+	// First, try to query database if client is provided
+	if client != nil && dbName != "" {
+		query := fmt.Sprintf("SELECT external_ids FROM %s", dbName)
+		result, err := client.Transact(dbName, query)
+		if err == nil && len(result.Rows) > 0 {
+			col := "external_ids"
+			rowData, dataType, err := result.Rows[0].GetColumnValue(col, result.Columns)
+			if err == nil && dataType == "map[string]string" {
+				externalIDs := rowData.(map[string]string)
+				if dbSystemID, exists := externalIDs["system-id"]; exists && dbSystemID != "" {
+					systemID = dbSystemID
+					if len(systemID) > 253 {
+						return systemID, fmt.Errorf("system-id is greater than what the exporter currently allows: %d vs 253", len(systemID))
+					}
+					return systemID, nil
+				}
+			}
+		} else if err != nil {
+			dbErr = err
+		}
+	}
+
+	// Fallback to reading from file
 	file, err := os.Open(filepath)
 	if err != nil {
-		return systemID, err
+		// If we also had a database error, return both
+		if dbErr != nil {
+			return "", fmt.Errorf("failed to get system-id from database (%s) and file (%s)", dbErr, err)
+		}
+		return "", err
 	}
 	defer file.Close()
 	scanner := bufio.NewScanner(file)
@@ -77,7 +108,10 @@ func getSystemID(filepath string) (string, error) {
 		break
 	}
 	if err := scanner.Err(); err != nil {
-		return systemID, err
+		if dbErr != nil {
+			return "", fmt.Errorf("failed to get system-id from database (%s) and file (%s)", dbErr, err)
+		}
+		return "", err
 	}
 	// vswitch.ovsschema does not limit system IDs to a particular length and a common
 	// ID to use is UUID (36 bytes). However, some tools use FQDNs for system-ids which
@@ -87,6 +121,99 @@ func getSystemID(filepath string) (string, error) {
 		return systemID, fmt.Errorf("system-id is greater than what the exporter currently allows: %d vs 253", len(systemID))
 	}
 	return systemID, nil
+}
+
+func getVersionViaAppctl(sock string, timeout int) (string, error) {
+	cmd := "version"
+	app, err := NewClient(sock, timeout)
+	if err != nil {
+		return "", fmt.Errorf("failed to connect to socket %s: %s", sock, err)
+	}
+	r, err := app.query(cmd, nil)
+	app.Close()
+	if err != nil {
+		return "", fmt.Errorf("the '%s' command failed: %s", cmd, err)
+	}
+	response := r.String()
+	if response == "" {
+		return "", fmt.Errorf("the '%s' command returned no data", cmd)
+	}
+	return response, nil
+}
+
+func parseOvsVersion(versionStr string) string {
+	// Parse version from string like "ovs-vswitchd (Open vSwitch) 3.5.1"
+	re := regexp.MustCompile(`\(Open vSwitch\)\s+([\d.]+)`)
+	matches := re.FindStringSubmatch(versionStr)
+	if len(matches) > 1 {
+		return matches[1]
+	}
+	// Fallback: return the whole string
+	return strings.TrimSpace(versionStr)
+}
+
+func getSystemInfoFromOS() (string, string) {
+	// Read /etc/os-release to get system type and version
+	file, err := os.Open("/etc/os-release")
+	if err != nil {
+		return "", ""
+	}
+	defer file.Close()
+
+	var systemType, systemVersion string
+	scanner := bufio.NewScanner(file)
+	for scanner.Scan() {
+		line := scanner.Text()
+		if strings.HasPrefix(line, "ID=") {
+			systemType = strings.Trim(strings.TrimPrefix(line, "ID="), "\"")
+		} else if strings.HasPrefix(line, "VERSION_ID=") {
+			systemVersion = strings.Trim(strings.TrimPrefix(line, "VERSION_ID="), "\"")
+		}
+	}
+	return systemType, systemVersion
+}
+
+func populateVersionFromAppctl(systemInfo map[string]string, sock string, timeout int, schema *Schema) {
+	// Get OVS version via ovs-appctl if missing from DB
+	if val, exists := systemInfo["ovs_version"]; !exists || val == "" {
+		versionStr, err := getVersionViaAppctl(sock, timeout)
+		if err == nil {
+			systemInfo["ovs_version"] = parseOvsVersion(versionStr)
+		} else {
+			systemInfo["ovs_version"] = "unknown"
+		}
+	}
+
+	// Get DB version from schema if missing from DB
+	if val, exists := systemInfo["db_version"]; !exists || val == "" {
+		if schema != nil && schema.Version != "" {
+			systemInfo["db_version"] = schema.Version
+		} else {
+			systemInfo["db_version"] = "unknown"
+		}
+	}
+
+	// Get system type and version from /etc/os-release if missing from DB
+	if val, exists := systemInfo["system_type"]; !exists || val == "" {
+		systemType, systemVersion := getSystemInfoFromOS()
+		if systemType != "" {
+			systemInfo["system_type"] = systemType
+		} else {
+			systemInfo["system_type"] = "unknown"
+		}
+		if systemVersion != "" {
+			systemInfo["system_version"] = systemVersion
+		} else {
+			systemInfo["system_version"] = "unknown"
+		}
+	} else if val, exists := systemInfo["system_version"]; !exists || val == "" {
+		_, systemVersion := getSystemInfoFromOS()
+		if systemVersion != "" {
+			systemInfo["system_version"] = systemVersion
+		} else {
+			systemInfo["system_version"] = "unknown"
+		}
+	}
 }
 
 func parseSystemInfo(systemID string, result Result) (map[string]string, error) {
@@ -107,12 +234,21 @@ func parseSystemInfo(systemID string, result Result) (map[string]string, error) 
 			if err != nil {
 				return systemInfo, fmt.Errorf("parsing '%s' failed: %s", col, err)
 			}
-			if dataType != "string" {
+			switch dataType {
+			case "string":
+				systemInfo[col] = rowData.(string)
+			case "[]string":
+				arr := rowData.([]string)
+				if len(arr) > 0 {
+					systemInfo[col] = arr[0]
+				} else {
+					systemInfo[col] = ""
+				}
+			default:
 				return systemInfo, fmt.Errorf("data type '%s' for '%s' column is unexpected in this context", dataType, col)
 			}
-			systemInfo[col] = rowData.(string)
 		}
-		break
+		break //nolint:staticcheck
 	}
 	if dbSystemID, exists := systemInfo["system-id"]; exists {
 		if dbSystemID != systemID {
@@ -121,9 +257,14 @@ func parseSystemInfo(systemID string, result Result) (map[string]string, error) 
 	} else {
 		return systemInfo, fmt.Errorf("no 'system-id' found")
 	}
-	requiredKeys := []string{"rundir", "hostname", "ovs_version", "db_version", "system_type", "system_version"}
+	// Set defaults for optional keys that may not be in external_ids
+	if _, exists := systemInfo["rundir"]; !exists {
+		systemInfo["rundir"] = "/var/run/openvswitch"
+	}
+	// Only hostname is truly required
+	requiredKeys := []string{"hostname"}
 	for _, key := range requiredKeys {
-		if _, exists := systemInfo[key]; exists == false {
+		if _, exists := systemInfo[key]; !exists {
 			return systemInfo, fmt.Errorf("no mandatory '%s' found", key)
 		}
 	}
@@ -133,11 +274,12 @@ func parseSystemInfo(systemID string, result Result) (map[string]string, error) 
 // GetSystemInfo returns a hash containing system information, e.g. `system_id`
 // associated with the Open_vSwitch database.
 func (cli *OvnClient) GetSystemInfo() error {
-	systemID, err := getSystemID(cli.Database.Vswitch.File.SystemID.Path)
+	// Get system-id (tries database first, falls back to file)
+	systemID, err := getSystemID(cli.Database.Vswitch.Client, cli.Database.Vswitch.Name, cli.Database.Vswitch.File.SystemID.Path)
 	if err != nil {
 		return err
 	}
-	cli.System.ID = systemID
+
 	query := fmt.Sprintf("SELECT ovs_version, db_version, system_type, system_version, external_ids FROM %s", cli.Database.Vswitch.Name)
 	result, err := cli.Database.Vswitch.Client.Transact(cli.Database.Vswitch.Name, query)
 	if err != nil {
@@ -150,6 +292,18 @@ func (cli *OvnClient) GetSystemInfo() error {
 	if err != nil {
 		return fmt.Errorf("The '%s' query returned results but erred: %s", query, err)
 	}
+	// Get schema for db_version
+	schema, _ := cli.Database.Vswitch.Client.GetSchema(cli.Database.Vswitch.Name)
+	// Ensure PID is read and socket path is updated before using control socket
+	if cli.Database.Vswitch.Process.ID == 0 {
+		p, pidErr := getProcessInfoFromFile(cli.Database.Vswitch.File.Pid.Path)
+		if pidErr == nil {
+			cli.Database.Vswitch.Process = p
+		}
+	}
+	cli.updateRefs()
+	// Query version information via ovs-appctl for fields not in DB (OVS 3.x+)
+	populateVersionFromAppctl(systemInfo, cli.Database.Vswitch.Socket.Control, cli.Timeout, &schema)
 	cli.System.ID = systemInfo["system-id"]
 	cli.System.RunDir = systemInfo["rundir"]
 	cli.System.Hostname = systemInfo["hostname"]
@@ -163,11 +317,12 @@ func (cli *OvnClient) GetSystemInfo() error {
 // GetSystemInfo returns a hash containing system information, e.g. `system_id`
 // associated with the Open_vSwitch database.
 func (cli *OvsClient) GetSystemInfo() error {
-	systemID, err := getSystemID(cli.Database.Vswitch.File.SystemID.Path)
+	// Get system-id (tries database first, falls back to file)
+	systemID, err := getSystemID(cli.Database.Vswitch.Client, cli.Database.Vswitch.Name, cli.Database.Vswitch.File.SystemID.Path)
 	if err != nil {
 		return err
 	}
-	cli.System.ID = systemID
+
 	query := fmt.Sprintf("SELECT ovs_version, db_version, system_type, system_version, external_ids FROM %s", cli.Database.Vswitch.Name)
 	result, err := cli.Database.Vswitch.Client.Transact(cli.Database.Vswitch.Name, query)
 	if err != nil {
@@ -180,6 +335,18 @@ func (cli *OvsClient) GetSystemInfo() error {
 	if err != nil {
 		return fmt.Errorf("The '%s' query returned results but erred: %s", query, err)
 	}
+	// Get schema for db_version
+	schema, _ := cli.Database.Vswitch.Client.GetSchema(cli.Database.Vswitch.Name)
+	// Ensure PID is read and socket path is updated before using control socket
+	if cli.Database.Vswitch.Process.ID == 0 {
+		p, pidErr := getProcessInfoFromFile(cli.Database.Vswitch.File.Pid.Path)
+		if pidErr == nil {
+			cli.Database.Vswitch.Process = p
+		}
+	}
+	cli.updateRefs()
+	// Query version information via ovs-appctl for fields not in DB (OVS 3.x+)
+	populateVersionFromAppctl(systemInfo, cli.Database.Vswitch.Socket.Control, cli.Timeout, &schema)
 	cli.System.ID = systemInfo["system-id"]
 	cli.System.RunDir = systemInfo["rundir"]
 	cli.System.Hostname = systemInfo["hostname"]

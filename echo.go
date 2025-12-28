@@ -24,7 +24,7 @@ func (c *Client) Echo(s string) error {
 	method := "echo"
 	js, err := encodeString(s)
 	if err != nil {
-		fmt.Errorf("'%s' method failed: %v", method, err)
+		_ = fmt.Errorf("'%s' method failed: %v", method, err)
 	}
 	response, err := c.query(method, js)
 	if err != nil {

@@ -22,8 +22,8 @@ rights:
 	@sudo chmod o+rw /run/ovn/ovnsb_db.sock || true
 
 linter:
-	@golint
-	@echo "PASS: golint"
+	@golangci-lint run ./...
+	@echo "PASS: golangci-lint"
 
 test: covdir linter rights
 	@go test $(VERBOSE) -coverprofile=.coverage/coverage.out
@@ -50,7 +50,7 @@ clean:
 
 dep:
 	@echo "Making dependencies check ..."
-	@go install golang.org/x/lint/golint@latest
+	@go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest
 	@go install github.com/kyoh86/richgo@latest
 	@go install github.com/caddyserver/xcaddy/cmd/xcaddy@latest
 	@go install github.com/greenpau/versioned/cmd/versioned@latest

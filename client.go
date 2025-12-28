@@ -19,6 +19,7 @@ package ovsdb
 import (
 	"encoding/json"
 	"fmt"
+
 	//"github.com/davecgh/go-spew/spew"
 	"io"
 	//"math/rand"
@@ -58,7 +59,7 @@ func NewClient(s string, t int) (Client, error) {
 	cli.errQueue = make(chan error, 1)
 	go ovsdbMessenger(cli.Endpoint, cli.Timeout, cli.txQueue, cli.rxQueue, cli.errQueue)
 	err := <-cli.errQueue
-	return cli, err
+	return cli, err //nolint:govet
 }
 
 // Close TODO
@@ -82,7 +83,7 @@ func (cli *Client) query(method string, param interface{}) (*Response, error) {
 		Params: param,
 	}
 	for {
-		if cli.closed == false {
+		if !cli.closed {
 			cli.txQueue <- req
 			select {
 			case err := <-cli.errQueue:
@@ -114,7 +115,6 @@ func (cli *Client) query(method string, param interface{}) (*Response, error) {
 			retryAttempts--
 		}
 	}
-	return nil, fmt.Errorf("%s", errMsgs)
 }
 
 func (cli *Client) getColumns(db, table string) (map[string]string, error) {
@@ -266,20 +266,18 @@ func ovsdbMessenger(s string, t int, rxQueue <-chan Request, txQueue chan<- Resp
 	errQueue <- nil
 	cli := newClientCodec(conn)
 	for {
-		select {
-		case reqMsg := <-rxQueue:
-			var req rpc.Request
-			if reqMsg.Method == "shutdown" {
-				cli.Close()
-				errQueue <- nil
-				return
-			}
-			req.ServiceMethod = reqMsg.Method
-			req.Seq = counter
-			if err := cli.WriteRequest(&req, reqMsg.Params); err != nil {
-				errQueue <- err
-				return
-			}
+		reqMsg := <-rxQueue
+		var req rpc.Request
+		if reqMsg.Method == "shutdown" {
+			cli.Close()
+			errQueue <- nil
+			return
+		}
+		req.ServiceMethod = reqMsg.Method
+		req.Seq = counter
+		if err := cli.WriteRequest(&req, reqMsg.Params); err != nil {
+			errQueue <- err
+			return
 		}
 		if err := cli.ReadResponseHeader(&resp); err != nil {
 			errQueue <- err
@@ -319,5 +317,4 @@ func ovsdbMessenger(s string, t int, rxQueue <-chan Request, txQueue chan<- Resp
 		}
 		txQueue <- respMsg
 	}
-	return
 }

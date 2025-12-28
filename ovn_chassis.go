@@ -28,9 +28,10 @@ type OvnChassis struct {
 		UUID  string
 		Proto string
 	}
-	Up       int
-	Ports    []string
-	Switches []string
+	NbCfg          int64 // Configuration sequence number from Chassis_Private table (0 if not present)
+	NbCfgTimestamp int64 // Timestamp from Chassis_Private table (0 if not present)
+	Ports          []string
+	Switches       []string
 }
 
 // GetChassis returns a list of OVN chassis.
@@ -134,6 +135,92 @@ func (cli *OvnClient) GetChassis() ([]*OvnChassis, error) {
 			break
 		}
 	}
+
+	query = "SELECT chassis, name, nb_cfg, nb_cfg_timestamp FROM Chassis_Private"
+	result, err = cli.Database.Southbound.Client.Transact(cli.Database.Southbound.Name, query)
+	if err != nil {
+		return chassis, nil
+	}
+
+	// Create maps for chassis nb_cfg and nb_cfg_timestamp
+	chassisNbCfgMap := make(map[string]int64)
+	chassisTimestampMap := make(map[string]int64)
+	if len(result.Rows) > 0 {
+		for _, row := range result.Rows {
+			var chassisUUID string
+			var chassisName string
+			var nbCfg int64
+			var nbCfgTimestamp int64
+
+			// Get chassis UUID (reference to Chassis table)
+			if r, dt, err := row.GetColumnValue("chassis", result.Columns); err == nil && dt == "string" {
+				chassisUUID = r.(string)
+			}
+
+			// Get chassis name
+			if r, dt, err := row.GetColumnValue("name", result.Columns); err == nil && dt == "string" {
+				chassisName = r.(string)
+			}
+
+			// Get the nb_cfg
+			if r, dt, err := row.GetColumnValue("nb_cfg", result.Columns); err == nil {
+				switch dt {
+				case "int64":
+					nbCfg = r.(int64)
+				case "integer":
+					// GetColumnValue returns "integer" for float64 values after converting to int64
+					nbCfg = r.(int64)
+				case "float64":
+					nbCfg = int64(r.(float64))
+				case "int":
+					nbCfg = int64(r.(int))
+				}
+			}
+
+			// Get the nb_cfg_timestamp
+			if r, dt, err := row.GetColumnValue("nb_cfg_timestamp", result.Columns); err == nil {
+				switch dt {
+				case "int64":
+					nbCfgTimestamp = r.(int64)
+				case "integer":
+					// GetColumnValue returns "integer" for float64 values after converting to int64
+					nbCfgTimestamp = r.(int64)
+				case "float64":
+					nbCfgTimestamp = int64(r.(float64))
+				case "int":
+					nbCfgTimestamp = int64(r.(int))
+				}
+			}
+
+			// Store values by both UUID and name
+			if chassisUUID != "" {
+				chassisNbCfgMap[chassisUUID] = nbCfg
+				chassisTimestampMap[chassisUUID] = nbCfgTimestamp
+			}
+			if chassisName != "" {
+				chassisNbCfgMap[chassisName] = nbCfg
+				chassisTimestampMap[chassisName] = nbCfgTimestamp
+			}
+		}
+	}
+
+	// Set the NbCfg and NbCfgTimestamp fields for each chassis
+	// Will be 0 if chassis has no entry in Chassis_Private
+	for _, c := range chassis {
+		if nbCfg, exists := chassisNbCfgMap[c.UUID]; exists {
+			c.NbCfg = nbCfg
+		} else if nbCfg, exists := chassisNbCfgMap[c.Name]; exists {
+			c.NbCfg = nbCfg
+		}
+
+		if timestamp, exists := chassisTimestampMap[c.UUID]; exists {
+			c.NbCfgTimestamp = timestamp
+		} else if timestamp, exists := chassisTimestampMap[c.Name]; exists {
+			c.NbCfgTimestamp = timestamp
+		}
+		// If no entry found, NbCfg and NbCfgTimestamp remain 0 (default)
+	}
+
 	return chassis, nil
 }
 

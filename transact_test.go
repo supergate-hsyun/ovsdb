@@ -66,7 +66,6 @@ func TestTransactMethod(t *testing.T) {
 				t.Logf("FAIL: Test %d: database '%s', query '%s', row: %d, unsupported data type '%s' for value: %v", i, test.db, test.query, j, valueType, value)
 				testFailed = true
 				testsFailed++
-				break
 			}
 			if err != nil {
 				if !test.shouldFail {

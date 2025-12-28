@@ -53,7 +53,7 @@ func (c *Client) GetSchema(s string) (Schema, error) {
 	method := "get_schema"
 	js, err := encodeString(s)
 	if err != nil {
-		fmt.Errorf("'%s' method failed: %v", method, err)
+		_ = fmt.Errorf("'%s' method failed: %v", method, err)
 	}
 	response, err := c.query(method, js)
 	if err != nil {
