@@ -78,8 +78,6 @@ func (cli *OvnClient) GetAppCoverageMetrics(db string) (map[string]map[string]fl
 		return getAppCoverageMetrics(db, cli.Database.Northbound.Socket.Control, cli.Timeout)
 	case "ovsdb-server-southbound":
 		return getAppCoverageMetrics(db, cli.Database.Southbound.Socket.Control, cli.Timeout)
-	case "ovsdb-server":
-		return getAppCoverageMetrics(db, cli.Database.Vswitch.Socket.Control, cli.Timeout)
 	default:
 		return nil, fmt.Errorf("The '%s' database is unsupported for '%s'", db, cmd)
 	}
