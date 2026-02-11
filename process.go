@@ -109,8 +109,6 @@ func (cli *OvnClient) GetProcessInfo(name string) (OvsProcess, error) {
 	var p OvsProcess
 	var err error
 	switch name {
-	case "ovsdb-server":
-		p, err = getProcessInfoFromFile(cli.Database.Vswitch.File.Pid.Path)
 	case "ovsdb-server-southbound":
 		p, err = getProcessInfoFromFile(cli.Database.Southbound.File.Pid.Path)
 	case "ovsdb-server-southbound-monitoring":
@@ -123,8 +121,6 @@ func (cli *OvnClient) GetProcessInfo(name string) (OvsProcess, error) {
 		p, err = getProcessInfoFromFile(cli.Service.Northd.File.Pid.Path)
 	case "ovn-northd-monitoring":
 		p, err = getProcessInfo(cli.Service.Northd.Process.Parent.ID)
-	case "ovs-vswitchd":
-		p, err = getProcessInfoFromFile(cli.Service.Vswitchd.File.Pid.Path)
 	default:
 		return OvsProcess{}, fmt.Errorf("The '%s' component is unsupported", name)
 	}
@@ -132,8 +128,6 @@ func (cli *OvnClient) GetProcessInfo(name string) (OvsProcess, error) {
 		return OvsProcess{}, err
 	}
 	switch name {
-	case "ovsdb-server":
-		cli.Database.Vswitch.Process = p
 	case "ovsdb-server-southbound":
 		cli.Database.Southbound.Process = p
 	case "ovsdb-server-southbound-monitoring":
@@ -146,8 +140,6 @@ func (cli *OvnClient) GetProcessInfo(name string) (OvsProcess, error) {
 		cli.Service.Northd.Process = p
 	case "ovn-northd-monitoring":
 		cli.Service.Northd.Process.Parent.ID = p.ID
-	case "ovs-vswitchd":
-		cli.Service.Vswitchd.Process = p
 	}
 	return p, nil
 }

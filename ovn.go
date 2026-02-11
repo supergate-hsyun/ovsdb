@@ -16,55 +16,27 @@ package ovsdb
 
 import (
 	"fmt"
+	"path/filepath"
 	//"github.com/davecgh/go-spew/spew"
 )
 
-// OvnClient holds connection to all OVN databases.
+// OvnClient holds connection to OVN databases (Northbound and Southbound).
+// For Open_vSwitch database operations, use OvsClient instead.
 type OvnClient struct {
 	Database struct {
 		Northbound OvsDatabase
 		Southbound OvsDatabase
-		Vswitch    OvsDatabase
 	}
 	Service struct {
-		Northd   OvsDaemon
-		Vswitchd OvsDaemon
+		Northd OvsDaemon
 	}
 	Timeout int
-	System  struct {
-		ID       string
-		RunDir   string
-		Hostname string
-		Type     string
-		Version  string
-	}
 }
 
 // NewOvnClient creates an instance of a client for OVN stack.
 func NewOvnClient() *OvnClient {
 	cli := OvnClient{}
 	cli.Timeout = 2
-
-	cli.System.ID = "unknown"
-	cli.System.RunDir = "/var/run/openvswitch"
-	cli.System.Hostname = "localhost"
-	cli.System.Type = "unknown"
-	cli.System.Version = "unknown"
-
-	cli.Database.Vswitch.Process.ID = 0
-	cli.Database.Vswitch.Process.User = "openvswitch"
-	cli.Database.Vswitch.Process.Group = "openvswitch"
-	cli.Database.Vswitch.Version = "unknown"
-	cli.Database.Vswitch.Schema.Version = "unknown"
-	cli.Database.Vswitch.Name = "Open_vSwitch"
-	cli.Database.Vswitch.Socket.Remote = "unix:/var/run/openvswitch/db.sock"
-	cli.Database.Vswitch.Socket.Control = fmt.Sprintf("unix:%s/ovsdb-server.%d.ctl", cli.System.RunDir, cli.Database.Vswitch.Process.ID)
-	cli.Database.Vswitch.File.Data.Path = "/etc/openvswitch/conf.db"
-	cli.Database.Vswitch.File.Log.Path = "/var/log/openvswitch/ovsdb-server.log"
-	cli.Database.Vswitch.File.Pid.Path = "/var/run/openvswitch/ovsdb-server.pid"
-	cli.Database.Vswitch.File.SystemID.Path = "/etc/openvswitch/system-id.conf"
-	cli.Database.Vswitch.Port.Default = 6640
-	cli.Database.Vswitch.Port.Ssl = 6630
 
 	cli.Database.Northbound.Name = "OVN_Northbound"
 	cli.Database.Northbound.Socket.Remote = "unix:/run/openvswitch/ovnnb_db.sock"
@@ -92,19 +64,12 @@ func NewOvnClient() *OvnClient {
 	cli.Database.Southbound.Port.Ssl = 6632
 	cli.Database.Southbound.Port.Raft = 6644
 
-	cli.Service.Vswitchd.Process.ID = 0
-	cli.Service.Vswitchd.Process.User = "openvswitch"
-	cli.Service.Vswitchd.Process.Group = "openvswitch"
-	cli.Service.Vswitchd.File.Log.Path = "/var/log/openvswitch/ovs-vswitchd.log"
-	cli.Service.Vswitchd.File.Pid.Path = "/var/run/openvswitch/ovs-vswitchd.pid"
-	cli.Service.Vswitchd.Socket.Control = fmt.Sprintf("unix:%s/ovs-vswitchd.%d.ctl", cli.System.RunDir, cli.Service.Vswitchd.Process.ID)
-
 	cli.Service.Northd.Process.ID = 0
 	cli.Service.Northd.Process.User = "openvswitch"
 	cli.Service.Northd.Process.Group = "openvswitch"
 	cli.Service.Northd.File.Log.Path = "/var/log/openvswitch/ovn-northd.log"
 	cli.Service.Northd.File.Pid.Path = "/run/openvswitch/ovn-northd.pid"
-	cli.Service.Northd.Socket.Control = fmt.Sprintf("unix:%s/ovn-northd.%d.ctl", cli.System.RunDir, cli.Service.Northd.Process.ID)
+	cli.Service.Northd.Socket.Control = fmt.Sprintf("unix:%s/ovn-northd.%d.ctl", filepath.Dir(cli.Service.Northd.File.Pid.Path), cli.Service.Northd.Process.ID)
 
 	return &cli
 }
@@ -112,14 +77,6 @@ func NewOvnClient() *OvnClient {
 // Connect initiates connections to OVN databases.
 func (cli *OvnClient) Connect() error {
 	errMsgs := []string{}
-	if cli.Database.Vswitch.Client == nil {
-		ovs, err := NewClient(cli.Database.Vswitch.Socket.Remote, cli.Timeout)
-		cli.Database.Vswitch.Client = &ovs
-		if err != nil {
-			cli.Database.Vswitch.Client.closed = true
-			errMsgs = append(errMsgs, fmt.Sprintf("failed connecting to %s via %s: %s", cli.Database.Vswitch.Name, cli.Database.Vswitch.Socket.Remote, err))
-		}
-	}
 	if cli.Database.Northbound.Client == nil {
 		nb, err := NewClient(cli.Database.Northbound.Socket.Remote, cli.Timeout)
 		cli.Database.Northbound.Client = &nb
@@ -150,13 +107,8 @@ func (cli *OvnClient) Close() {
 	if cli.Database.Northbound.Client != nil {
 		cli.Database.Northbound.Client.Close()
 	}
-	if cli.Database.Vswitch.Client != nil {
-		cli.Database.Vswitch.Client.Close()
-	}
 }
 
 func (cli *OvnClient) updateRefs() {
-	cli.Database.Vswitch.Socket.Control = fmt.Sprintf("unix:%s/ovsdb-server.%d.ctl", cli.System.RunDir, cli.Database.Vswitch.Process.ID)
-	cli.Service.Vswitchd.Socket.Control = fmt.Sprintf("unix:%s/ovs-vswitchd.%d.ctl", cli.System.RunDir, cli.Service.Vswitchd.Process.ID)
-	cli.Service.Northd.Socket.Control = fmt.Sprintf("unix:%s/ovn-northd.%d.ctl", cli.System.RunDir, cli.Service.Northd.Process.ID)
+	cli.Service.Northd.Socket.Control = fmt.Sprintf("unix:%s/ovn-northd.%d.ctl", filepath.Dir(cli.Service.Northd.File.Pid.Path), cli.Service.Northd.Process.ID)
 }

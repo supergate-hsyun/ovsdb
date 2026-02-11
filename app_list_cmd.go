@@ -59,8 +59,6 @@ func (cli *OvnClient) AppListCommands(db string) (map[string]bool, error) {
 		return appListCommands(db, cli.Database.Northbound.Socket.Control, cli.Timeout)
 	case "ovsdb-server-southbound":
 		return appListCommands(db, cli.Database.Southbound.Socket.Control, cli.Timeout)
-	case "ovsdb-server":
-		return appListCommands(db, cli.Database.Vswitch.Socket.Control, cli.Timeout)
 	default:
 		return nil, fmt.Errorf("The '%s' database is unsupported for '%s'", db, cmd)
 	}
