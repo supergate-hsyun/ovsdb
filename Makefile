@@ -40,7 +40,7 @@ coverage:
 
 docs:
 	@mkdir -p .doc
-	@godoc -html github.com/greenpau/ovsdb > .doc/index.html
+	@godoc -html github.com/supergate-hub/ovsdb > .doc/index.html
 	@echo "Run to serve docs:"
 	@echo "    godoc -goroot .doc/ -html -http \":5000\""
 

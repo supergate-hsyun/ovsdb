@@ -1,3 +1,3 @@
-module github.com/greenpau/ovsdb
+module github.com/supergate-hub/ovsdb
 
 go 1.20
